@@ -38,6 +38,14 @@ The new :class:`~django.db.models.CheckConstraint` and
 database constraints. Constraints are added to models using the
 :attr:`Meta.constraints <django.db.models.Options.constraints>` option.
 
+Filter Expressions
+------------------
+
+Expressions that have a :class:`~django.db.models.BooleanField` output
+field may now be used directly in a queryset filter, without having to
+first annotate and then filter on the annotation.
+
+
 Minor features
 --------------
 

@@ -104,6 +104,8 @@ class Combinable:
         return self._combine(other, self.BITRIGHTSHIFT, False)
 
     def __or__(self, other):
+        if getattr(self, 'conditional', False) and getattr(other, 'conditional', False):
+            return Q(self) | Q(other)
         raise NotImplementedError(
             "Use .bitand() and .bitor() for bitwise logical operations."
         )
@@ -221,7 +223,8 @@ class BaseExpression:
     def contains_column_references(self):
         return any(expr and expr.contains_column_references for expr in self.get_source_expressions())
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
         """
         Provide the chance to do any preprocessing or validation before being
         added to the query.
@@ -233,17 +236,22 @@ class BaseExpression:
          * reuse: a set of reusable joins for multijoins
          * summarize: a terminal aggregate clause
          * for_save: whether this expression about to be used in a save or update
+         * for_where: whether this expression is about to be used in a where condition
 
         Return: an Expression to be added to the query.
         """
         c = self.copy()
         c.is_summary = summarize
         c.set_source_expressions([
-            expr.resolve_expression(query, allow_joins, reuse, summarize)
+            expr.resolve_expression(query, allow_joins, reuse, summarize, for_where=for_where)
             if expr else None
             for expr in c.get_source_expressions()
         ])
         return c
+
+    @property
+    def conditional(self):
+        return isinstance(self.output_field, fields.BooleanField)
 
     @property
     def field(self):
@@ -447,11 +455,12 @@ class CombinedExpression(SQLiteNumericMixin, Expression):
         sql = connection.ops.combine_expression(self.connector, expressions)
         return expression_wrapper % sql, expression_params
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
         c = self.copy()
         c.is_summary = summarize
-        c.lhs = c.lhs.resolve_expression(query, allow_joins, reuse, summarize, for_save)
-        c.rhs = c.rhs.resolve_expression(query, allow_joins, reuse, summarize, for_save)
+        c.lhs = c.lhs.resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
+        c.rhs = c.rhs.resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
         return c
 
 
@@ -512,8 +521,9 @@ class F(Combinable):
         return "{}({})".format(self.__class__.__name__, self.name)
 
     def resolve_expression(self, query=None, allow_joins=True, reuse=None,
-                           summarize=False, for_save=False, simple_col=False):
-        return query.resolve_ref(self.name, allow_joins, reuse, summarize, simple_col)
+                           summarize=False, for_save=False, simple_col=False,
+                           for_where=False):
+        return query.resolve_ref(self.name, allow_joins, reuse, summarize, simple_col, for_where)
 
     def asc(self, **kwargs):
         return OrderBy(self, **kwargs)
@@ -549,7 +559,8 @@ class ResolvedOuterRef(F):
 
 class OuterRef(F):
     def resolve_expression(self, query=None, allow_joins=True, reuse=None,
-                           summarize=False, for_save=False, simple_col=False):
+                           summarize=False, for_save=False, simple_col=False,
+                           for_where=False):
         if isinstance(self.name, self.__class__):
             return self.name
         return ResolvedOuterRef(self.name)
@@ -594,11 +605,14 @@ class Func(SQLiteNumericMixin, Expression):
     def set_source_expressions(self, exprs):
         self.source_expressions = exprs
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
         c = self.copy()
         c.is_summary = summarize
         for pos, arg in enumerate(c.source_expressions):
-            c.source_expressions[pos] = arg.resolve_expression(query, allow_joins, reuse, summarize, for_save)
+            c.source_expressions[pos] = arg.resolve_expression(
+                query, allow_joins, reuse, summarize, for_save, for_where,
+            )
         return c
 
     def as_sql(self, compiler, connection, function=None, template=None, arg_joiner=None, **extra_context):
@@ -664,8 +678,9 @@ class Value(Expression):
             return 'NULL', []
         return '%s', [val]
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
-        c = super().resolve_expression(query, allow_joins, reuse, summarize, for_save)
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
+        c = super().resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
         c.for_save = for_save
         return c
 
@@ -809,7 +824,8 @@ class Ref(Expression):
     def set_source_expressions(self, exprs):
         self.source, = exprs
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
         # The sub-expression `source` has already been resolved, as this is
         # just a reference to the name of `source`.
         return self
@@ -866,12 +882,13 @@ class ExpressionWrapper(Expression):
 
 class When(Expression):
     template = 'WHEN %(condition)s THEN %(result)s'
+    conditional = False  # May not be used within a WHERE without a wrapping Case().
 
     def __init__(self, condition=None, then=None, **lookups):
         if lookups and condition is None:
             condition, lookups = Q(**lookups), None
         if condition is None or not getattr(condition, 'conditional', False) or lookups:
-            raise TypeError("__init__() takes either a Q object or lookups as keyword arguments")
+            raise TypeError('__init__() takes a Q object, boolean expression, or lookups as keyword arguments')
         if isinstance(condition, Q) and not condition:
             raise ValueError("An empty Q() can't be used as a When() condition.")
         super().__init__(output_field=None)
@@ -894,12 +911,13 @@ class When(Expression):
         # We're only interested in the fields of the result expressions.
         return [self.result._output_field_or_none]
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
         c = self.copy()
         c.is_summary = summarize
         if hasattr(c.condition, 'resolve_expression'):
             c.condition = c.condition.resolve_expression(query, allow_joins, reuse, summarize, False)
-        c.result = c.result.resolve_expression(query, allow_joins, reuse, summarize, for_save)
+        c.result = c.result.resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
         return c
 
     def as_sql(self, compiler, connection, template=None, **extra_context):
@@ -958,12 +976,13 @@ class Case(Expression):
     def set_source_expressions(self, exprs):
         *self.cases, self.default = exprs
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False,
+                           for_where=False):
         c = self.copy()
         c.is_summary = summarize
         for pos, case in enumerate(c.cases):
-            c.cases[pos] = case.resolve_expression(query, allow_joins, reuse, summarize, for_save)
-        c.default = c.default.resolve_expression(query, allow_joins, reuse, summarize, for_save)
+            c.cases[pos] = case.resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
+        c.default = c.default.resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
         return c
 
     def copy(self):
@@ -1073,12 +1092,14 @@ class Exists(Subquery):
         # CASE WHEN expression. Change the template since the When expression
         # requires a left hand side (column) to compare against.
         sql, params = self.as_sql(compiler, connection, template, **extra_context)
-        sql = 'CASE WHEN {} THEN 1 ELSE 0 END'.format(sql)
+        if not self.for_where:
+            sql = 'CASE WHEN {} THEN 1 ELSE 0 END'.format(sql)
         return sql, params
 
 
 class OrderBy(BaseExpression):
     template = '%(expression)s %(ordering)s'
+    conditional = False
 
     def __init__(self, expression, descending=False, nulls_first=False, nulls_last=False):
         if nulls_first and nulls_last:

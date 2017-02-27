@@ -629,19 +629,27 @@ You can query using ``NOT EXISTS`` with ``~Exists()``.
 Filtering on a ``Subquery`` expression
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-It's not possible to filter directly using ``Subquery`` and ``Exists``, e.g.::
+.. versionadded:: 2.2
 
+You may use a subquery (or any other expression) that returns a boolean value
+to directly filter a queryset::
+
+    >>> recent_comments = Comment.objects.filter(...)  # From above
     >>> Post.objects.filter(Exists(recent_comments))
-    ...
-    TypeError: 'Exists' object is not iterable
 
+This will ensure that the subquery will not be added to the ``SELECT`` columns,
+which may result in better performance.
 
-You must filter on a subquery expression by first annotating the queryset
-and then filtering based on that annotation::
+Subqueries that return a boolean value (or other expressions that have an
+``output_field`` that is a ``BooleanField``) may also be used as the argument
+to a ``When`` expression.
 
-    >>> Post.objects.annotate(
-    ...     recent_comment=Exists(recent_comments),
-    ... ).filter(recent_comment=True)
+.. versionchanged:: 2.2
+
+In previous versions of Django, it was necessary to first ``.annotate()`` using
+the ``Subquery``, and subsequently filter. This resulted in the annotated value
+always being present in the query result, and often resulted in a query that
+took more time to execute.
 
 Using aggregates within a ``Subquery`` expression
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -668,6 +676,14 @@ subquery must be limited to a single column, ``values('total')`` is required.
 This is the only way to perform an aggregation within a ``Subquery``, as
 using :meth:`~.QuerySet.aggregate` attempts to evaluate the queryset (and if
 there is an ``OuterRef``, this will not be possible to resolve).
+
+Using Expressions to filter QuerySets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. versionadded:: 2.2
+
+When an Expression outputs a boolean value, it may be used to directly filter
+a queryset, or as the argument to a ``When`` expression.
 
 Raw SQL expressions
 -------------------
@@ -927,7 +943,7 @@ calling the appropriate methods on the wrapped expression.
         in :class:`~django.db.models.expressions.Window`. Defaults to
         ``False``.
 
-    .. method:: resolve_expression(query=None, allow_joins=True, reuse=None, summarize=False, for_save=False)
+    .. method:: resolve_expression(query=None, allow_joins=True, reuse=None, summarize=False, for_save=False, for_where=False)
 
         Provides the chance to do any pre-processing or validation of
         the expression before it's added to the query. ``resolve_expression()``
@@ -943,6 +959,14 @@ calling the appropriate methods on the wrapped expression.
 
         ``summarize`` is a boolean that, when ``True``, signals that the
         query being computed is a terminal aggregate query.
+
+        ``for_save`` is a boolean that, when ``True``, signals that the
+        query being executed is performing a create or update.
+
+        ..versionadded: 2.2
+
+        ``for_where`` is a boolean, that when ``True``, signals that the
+        expression is being used as a filtering expression.
 
     .. method:: get_source_expressions()
 

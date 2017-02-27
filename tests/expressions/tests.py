@@ -83,6 +83,14 @@ class BasicExpressionsTests(TestCase):
             2,
         )
 
+    def test_filtering_on_q_that_is_boolean(self):
+        self.assertEqual(
+            Company.objects.filter(
+                ExpressionWrapper(Q(num_employees__gt=3), output_field=models.BooleanField())
+            ).count(),
+            2,
+        )
+
     def test_filter_inter_attribute(self):
         # We can filter on attribute relationships on same model obj, e.g.
         # find companies where the number of employees is greater
@@ -641,6 +649,35 @@ class BasicExpressionsTests(TestCase):
     def test_incorrect_joined_field_in_F_expression(self):
         with self.assertRaisesMessage(FieldError, "Cannot resolve keyword 'nope' into field."):
             list(Company.objects.filter(ceo__pk=F('point_of_contact__nope')))
+
+    def test_exists_in_filter(self):
+        inner = Company.objects.filter(ceo=OuterRef('pk')).values('pk')
+        outer_1 = Employee.objects.filter(Exists(inner))
+        outer_2 = Employee.objects.annotate(found=Exists(inner)).filter(found=True)
+        self.assertCountEqual(outer_2, outer_1)
+        self.assertFalse(Employee.objects.exclude(Exists(inner)).exists())
+        self.assertCountEqual(outer_2, Employee.objects.exclude(~Exists(inner)))
+
+    def test_case_valid_in_filter_if_boolean_output_field(self):
+        is_ceo = Company.objects.filter(ceo=OuterRef('pk'))
+        is_poc = Company.objects.filter(point_of_contact=OuterRef('pk'))
+        outer_1 = Employee.objects.filter(Exists(is_ceo) | Exists(is_poc))
+        self.assertQuerysetEqual(
+            outer_1,
+            ['<Employee: Joe Smith>', '<Employee: Frank Meyer>', '<Employee: Max Mustermann>'],
+            ordered=False
+        )
+        outer_2 = Employee.objects.filter(
+            Case(When(Exists(is_ceo), then=True),
+                 When(Exists(is_poc), then=True),
+                 default=False,
+                 output_field=models.BooleanField())
+        )
+        self.assertQuerysetEqual(
+            outer_2,
+            ['<Employee: Joe Smith>', '<Employee: Frank Meyer>', '<Employee: Max Mustermann>'],
+            ordered=False
+        )
 
 
 class IterableLookupInnerExpressionsTests(TestCase):

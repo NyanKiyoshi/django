@@ -1223,6 +1223,10 @@ class Query(BaseExpression):
         """
         if isinstance(filter_expr, dict):
             raise FieldError("Cannot parse keyword query as dict")
+        if hasattr(filter_expr, 'resolve_expression') and getattr(filter_expr, 'conditional', False):
+            clause = self.where_class()
+            clause.add(filter_expr.resolve_expression(self, for_where=True), AND)
+            return clause, []
         arg, value = filter_expr
         if not arg:
             raise FieldError("Cannot parse keyword query %r" % arg)
