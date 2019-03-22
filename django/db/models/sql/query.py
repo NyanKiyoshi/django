@@ -1633,7 +1633,7 @@ class Query(BaseExpression):
             else:
                 yield from cls._gen_col_aliases(expr.get_source_expressions())
 
-    def resolve_ref(self, name, allow_joins=True, reuse=None, summarize=False, simple_col=False):
+    def resolve_ref(self, name, allow_joins=True, reuse=None, summarize=False, simple_col=False, for_where=False):
         if not allow_joins and LOOKUP_SEP in name:
             raise FieldError("Joined field references are not permitted in this query")
         annotation = self.annotations.get(name)
