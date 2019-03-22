@@ -629,7 +629,7 @@ You can query using ``NOT EXISTS`` with ``~Exists()``.
 Filtering on a ``Subquery`` expression
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. versionadded:: 2.2
+.. versionadded:: 3.0
 
 You may use a subquery (or any other expression) that returns a boolean value
 to directly filter a queryset::
@@ -644,7 +644,7 @@ Subqueries that return a boolean value (or other expressions that have an
 ``output_field`` that is a ``BooleanField``) may also be used as the argument
 to a ``When`` expression.
 
-.. versionchanged:: 2.2
+.. versionchanged:: 3.0
 
 In previous versions of Django, it was necessary to first ``.annotate()`` using
 the ``Subquery``, and subsequently filter. This resulted in the annotated value
@@ -680,7 +680,7 @@ there is an ``OuterRef``, this will not be possible to resolve).
 Using Expressions to filter QuerySets
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. versionadded:: 2.2
+.. versionadded:: 3.0
 
 When an Expression outputs a boolean value, it may be used to directly filter
 a queryset, or as the argument to a ``When`` expression.
@@ -963,7 +963,7 @@ calling the appropriate methods on the wrapped expression.
         ``for_save`` is a boolean that, when ``True``, signals that the
         query being executed is performing a create or update.
 
-        ..versionadded: 2.2
+        .. versionadded: 3.0
 
         ``for_where`` is a boolean, that when ``True``, signals that the
         expression is being used as a filtering expression.
