@@ -245,7 +245,7 @@ The two SQL statements are functionally equivalent but the more explicit
 Conditional filter
 ------------------
 
-.. versionadded:: 2.2
+.. versionadded:: 3.0
 
 When a conditional expression returns a boolean value, it is possible to
 use the expression directly in a filter expression. This means it will not

@@ -1075,11 +1075,11 @@ Now we implement the pre-processing and validation. Since we do not have
 any of our own validation at this point, we just delegate to the nested
 expressions::
 
-    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False, for_where=None):
         c = self.copy()
         c.is_summary = summarize
         for pos, expression in enumerate(self.expressions):
-            c.expressions[pos] = expression.resolve_expression(query, allow_joins, reuse, summarize, for_save)
+            c.expressions[pos] = expression.resolve_expression(query, allow_joins, reuse, summarize, for_save, for_where)
         return c
 
 Next, we write the method responsible for generating the SQL::
